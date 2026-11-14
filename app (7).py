@@ -21,13 +21,14 @@ st.subheader("Income, Marriages, and Prison Statistics in Malaysia (2020–2024)
 # --------------------------------------------------
 @st.cache_data
 def load_data():
+    income_df = pd.read_csv("income.csv")
     crime_clean = pd.read_csv("crime_clean.csv")
     marriages_clean = pd.read_csv("marriages_clean.csv")
     final_merged_df = pd.read_csv("final_merged_df.csv")
-    return crime_clean, marriages_clean, final_merged_df
+    return income_df, crime_clean, marriages_clean, final_merged_df
 
 try:
-    crime_clean, marriages_clean, final_merged_df = load_data()
+    income_df, crime_clean, marriages_clean, final_merged_df = load_data()
 except Exception as e:
     st.error(f"Error loading datasets: {e}")
     st.stop()
@@ -57,7 +58,25 @@ summary_year = st.sidebar.selectbox(
 # --------------------------------------------------
 # 4. DATA PREPARATION FOR CHARTS & SUMMARY BOXES
 # --------------------------------------------------
-# A. Yearly Bar Chart Data (Marriages vs Prisoners)
+# A. Income Data (from income.csv)
+inc_clean = income_df.copy()
+inc_clean["date"] = pd.to_datetime(inc_clean["date"], errors="coerce")
+inc_clean["year"] = inc_clean["date"].dt.year
+inc_clean["income"] = pd.to_numeric(inc_clean["income"].replace("?", pd.NA), errors="coerce")
+
+if "variable" in inc_clean.columns:
+    inc_clean["variable"] = inc_clean["variable"].astype(str).str.strip().str.lower()
+    if "mean" in inc_clean["variable"].unique():
+        inc_clean = inc_clean[inc_clean["variable"] == "mean"]
+
+income_yearly_all = (
+    inc_clean[inc_clean["year"].isin(years_list)]
+    .groupby("year", as_index=False)["income"]
+    .mean()
+    .rename(columns={"income": "avg_income"})
+)
+
+# B. Yearly Bar Chart Data (Marriages vs Prisoners)
 c_filtered = crime_clean.copy()
 if 'age' in c_filtered.columns and 'all' in c_filtered['age'].unique():
     c_filtered = c_filtered[c_filtered['age'] == 'all']
@@ -96,7 +115,7 @@ marriages_yearly = (
     .rename(columns={marriage_col: 'total_marriages'})
 )
 
-# B. State-Level Scatter Plot & Correlation Heatmap Data
+# C. State-Level Scatter Plot & Correlation Heatmap Data
 filtered_df = final_merged_df[final_merged_df['age'] == 'all'].copy()
 filtered_df['state'] = filtered_df['state'].astype(str).str.strip("'")
 if 'year' not in filtered_df.columns:
@@ -107,13 +126,7 @@ plot_df_all = filtered_df.groupby(['state', 'date', 'year', 'income'], as_index=
 })
 plot_df = plot_df_all[plot_df_all['year'].isin(selected_years)].copy()
 
-# C. Yearly Summary Table (for KPI Summary Boxes)
-income_yearly_all = (
-    plot_df_all.groupby('year', as_index=False)['income']
-    .mean()
-    .rename(columns={'income': 'avg_income'})
-)
-
+# D. Yearly Summary Table (for KPI Summary Boxes)
 full_yearly_df = (
     pd.DataFrame({'year': years_list})
     .merge(income_yearly_all, on='year', how='left')
