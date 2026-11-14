@@ -21,29 +21,16 @@ st.subheader("Income, Marriages, and Prison Statistics in Malaysia (2020–2024)
 # --------------------------------------------------
 @st.cache_data
 def load_data():
-    try:
-        crime_clean = pd.read_csv("crime_clean.csv")
-        marriages_clean = pd.read_csv("marriages_clean.csv")
-        final_merged_df = pd.read_csv("final_merged_df.csv")
-        return crime_clean, marriages_clean, final_merged_df, True
-    except FileNotFoundError:
-        years = [2020, 2021, 2022, 2023, 2024]
-        states = ['Johor', 'Selangor', 'Pahang', 'Sabah', 'Sarawak', 'Perak', 'Pulau Pinang']
-        crime_rows, marriage_rows, merged_rows = [], [], []
-        for idx_y, y in enumerate(years):
-            for idx_s, s in enumerate(states):
-                inc = 4500 + (idx_s * 950) + (idx_y * 350)
-                pris = 3200 + (idx_s * 600) + (idx_y * 120)
-                marr = 22000 + (idx_s * 3500) - (idx_y * 250)
-                crime_rows.append({'date': f'{y}-01-01', 'state': s, 'age': 'all', 'sex': 'both', 'prisoners': pris})
-                marriage_rows.append({'date': f'{y}-01-01', 'state': s, 'age': 'all', 'sex': 'both', 'marriages': marr})
-                merged_rows.append({'date': f'{y}-01-01', 'year': y, 'state': s, 'age': 'all', 'income': inc, 'prisoners': pris})
-        return pd.DataFrame(crime_rows), pd.DataFrame(marriage_rows), pd.DataFrame(merged_rows), False
+    crime_clean = pd.read_csv("crime_clean.csv")
+    marriages_clean = pd.read_csv("marriages_clean.csv")
+    final_merged_df = pd.read_csv("final_merged_df.csv")
+    return crime_clean, marriages_clean, final_merged_df
 
-crime_clean, marriages_clean, final_merged_df, is_real_data = load_data()
-
-if not is_real_data:
-    st.warning("⚠️ Fail CSV sebenar (`crime_clean.csv`, `marriages_clean.csv`, `final_merged_df.csv`) tidak ditemui. Sedang memaparkan **data simulasi**.")
+try:
+    crime_clean, marriages_clean, final_merged_df = load_data()
+except Exception as e:
+    st.error(f"Error loading datasets: {e}")
+    st.stop()
 
 # --------------------------------------------------
 # 3. SIDEBAR FILTERS
