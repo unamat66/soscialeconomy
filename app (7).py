@@ -171,4 +171,191 @@ df_heat = plot_df.merge(
     merged_yearly_df[['year', 'total_marriages']],
     on='year',
     how='inner'
-).
+).rename(columns={'income': 'avg_income'})
+
+corr_val = (
+    df_heat['avg_income'].corr(df_heat['total_marriages'])
+    if len(df_heat) >= 2 else None
+)
+
+# --------------------------------------------------
+# 5. DASHBOARD TABS WITH SUMMARY BOXES
+# --------------------------------------------------
+tab1, tab2, tab3 = st.tabs([
+    "📈 Income vs Prisoners",
+    "📊 Marriages vs Prisoners",
+    "🔥 Income vs Marriages"
+])
+
+# === TAB 1: SCATTER PLOT + SUMMARY BOX ===
+with tab1:
+    st.header("1. Relationship Between Household Income and Prisoner Statistics")
+    st.markdown("### 📊 Summary Metrics")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            label=f"Average Household Income ({summary_year})",
+            value=fmt_num(curr_income, prefix="RM ", decimals=2),
+            delta=f"{income_chg:+.2f}%" if income_chg is not None else None
+        )
+    with col2:
+        st.metric(
+            label=f"Total Prisoners ({summary_year})",
+            value=fmt_num(curr_prisoners),
+            delta=f"{prisoner_chg:+.2f}%" if prisoner_chg is not None else None,
+            delta_color="inverse"
+        )
+    with col3:
+        st.metric(
+            label="Income YoY Change (%)",
+            value=fmt_num(income_chg, suffix="%", decimals=2)
+        )
+
+    st.caption("Summary metrics compare the selected summary year with the previous year.")
+    st.divider()
+
+    fig_scatter = px.scatter(
+        plot_df,
+        x='income',
+        y='prisoners',
+        color='state',
+        hover_name='state',
+        hover_data=['date'],
+        trendline='ols',
+        trendline_scope='overall',
+        title=f'Household Income vs Prisoner Statistics ({min(selected_years)}–{max(selected_years)})',
+        labels={
+            'income': 'Average Household Income (RM)',
+            'prisoners': 'Number of Prisoners',
+            'state': 'State',
+            'date': 'Date/Year'
+        },
+        template='plotly_white'
+    )
+    fig_scatter.update_traces(marker=dict(size=9, opacity=0.85))
+    fig_scatter.update_layout(height=600, title_font_size=18, legend_title_text='State')
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
+# === TAB 2: DUAL-AXIS BAR CHART + SUMMARY BOX ===
+with tab2:
+    st.header("2. National Yearly Marriages vs Total Prisoners")
+    st.markdown("### 📊 Summary Metrics")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            label=f"Total Marriages ({summary_year})",
+            value=fmt_num(curr_marriages),
+            delta=f"{marriage_chg:+.2f}%" if marriage_chg is not None else None
+        )
+    with col2:
+        st.metric(
+            label=f"Total Prisoners ({summary_year})",
+            value=fmt_num(curr_prisoners),
+            delta=f"{prisoner_chg:+.2f}%" if prisoner_chg is not None else None,
+            delta_color="inverse"
+        )
+    with col3:
+        st.metric(
+            label="Marriage YoY Change (%)",
+            value=fmt_num(marriage_chg, suffix="%", decimals=2)
+        )
+
+    st.caption("Summary metrics compare the selected summary year with the previous year.")
+    st.divider()
+
+    fig_bar = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig_bar.add_trace(
+        go.Bar(
+            x=merged_yearly_df['year'],
+            y=merged_yearly_df['total_marriages'],
+            name="Total Marriages",
+            marker_color='rgb(158,202,225)',
+            offsetgroup=1
+        ),
+        secondary_y=False
+    )
+
+    fig_bar.add_trace(
+        go.Bar(
+            x=merged_yearly_df['year'],
+            y=merged_yearly_df['total_prisoners'],
+            name="Total Prisoners",
+            marker_color='rgb(227,119,194)',
+            offsetgroup=2
+        ),
+        secondary_y=True
+    )
+
+    fig_bar.update_layout(
+        title_text=f"National Yearly Marriages vs Total Prisoners ({min(selected_years)}–{max(selected_years)})",
+        xaxis_title="Year",
+        xaxis=dict(
+            type='category',
+            categoryorder='array',
+            categoryarray=selected_years
+        ),
+        barmode='group',
+        template="plotly_white",
+        height=550,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig_bar.update_yaxes(title_text="Total Marriages", secondary_y=False, showgrid=True)
+    fig_bar.update_yaxes(title_text="Total Prisoners", secondary_y=True, showgrid=False)
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    with st.expander("View Annual Summary Table"):
+        st.dataframe(merged_yearly_df, use_container_width=True)
+
+# === TAB 3: CORRELATION HEATMAP + SUMMARY BOX ===
+with tab3:
+    st.header("3. Correlation Heatmap: Income vs Marriages")
+    st.markdown("### 📊 Summary Metrics")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            label=f"Average Household Income ({summary_year})",
+            value=fmt_num(curr_income, prefix="RM ", decimals=2)
+        )
+    with col2:
+        st.metric(
+            label=f"Total Marriages ({summary_year})",
+            value=fmt_num(curr_marriages)
+        )
+    with col3:
+        st.metric(
+            label="Correlation Coefficient (r)",
+            value=fmt_num(corr_val, decimals=3)
+        )
+
+    st.caption("Correlation coefficient is calculated across the selected years.")
+    st.divider()
+
+    if len(df_heat) < 2:
+        st.warning("Not enough matching observations to calculate correlation. Please select at least 2 years.")
+    else:
+        corr_matrix = df_heat[['avg_income', 'total_marriages']].corr()
+        fig_heat = px.imshow(
+            corr_matrix,
+            text_auto=".3f",
+            aspect="auto",
+            color_continuous_scale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            labels=dict(color="Correlation Coefficient"),
+            x=["Average Income", "Total Marriages"],
+            y=["Average Income", "Total Marriages"],
+            title=f"Correlation Heatmap: Average Income vs Total Marriages ({min(selected_years)}–{max(selected_years)})"
+        )
+        fig_heat.update_layout(template="plotly_white", height=500)
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+# --------------------------------------------------
+# 6. FOOTER
+# --------------------------------------------------
+st.divider()
+st.caption("Data Source: Department of Statistics Malaysia (DOSM) and Malaysia Open Data.")
+st.caption("Scientific Visualisation Assignment | 2020–2024")
