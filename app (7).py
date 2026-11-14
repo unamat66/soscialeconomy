@@ -22,13 +22,34 @@ st.subheader("Income, Marriages, and Prison Statistics in Malaysia (2020–2024)
 @st.cache_data
 def load_data():
     income_df = pd.read_csv("income.csv")
-    crime_clean = pd.read_csv("crime_clean.csv")
-    marriages_clean = pd.read_csv("marriages_clean.csv")
-    final_merged_df = pd.read_csv("final_merged_df.csv")
-    return income_df, crime_clean, marriages_clean, final_merged_df
+    marriages_df = pd.read_csv("marriages_age.csv")
+    crime_df = pd.read_csv("crime.csv")
+
+    # Convert date and extract year
+    for df in [income_df, marriages_df, crime_df]:
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["year"] = df["date"].dt.year
+
+    # Filter data from 2020 to 2024
+    income_df = income_df[income_df["year"].between(2020, 2024)].copy()
+    marriages_df = marriages_df[marriages_df["year"].between(2020, 2024)].copy()
+    crime_df = crime_df[crime_df["year"].between(2020, 2024)].copy()
+
+    # Convert numerical columns
+    income_df["income"] = pd.to_numeric(income_df["income"].replace("?", pd.NA), errors="coerce")
+    marriages_df["abs"] = pd.to_numeric(marriages_df["abs"], errors="coerce")
+    crime_df["prisoners"] = pd.to_numeric(crime_df["prisoners"], errors="coerce")
+
+    # Clean text columns
+    for df in [income_df, marriages_df, crime_df]:
+        for col in ["state", "sex", "age", "variable"]:
+            if col in df.columns:
+                df[col] = df[col].astype("string").str.strip().str.strip("'")
+
+    return income_df, marriages_df, crime_df
 
 try:
-    income_df, crime_clean, marriages_clean, final_merged_df = load_data()
+    income_df, marriages_df, crime_df = load_data()
 except Exception as e:
     st.error(f"Error loading datasets: {e}")
     st.stop()
@@ -58,87 +79,64 @@ summary_year = st.sidebar.selectbox(
 # --------------------------------------------------
 # 4. DATA PREPARATION FOR CHARTS & SUMMARY BOXES
 # --------------------------------------------------
-# A. Income Data (from income.csv)
-inc_clean = income_df.copy()
-inc_clean["date"] = pd.to_datetime(inc_clean["date"], errors="coerce")
-inc_clean["year"] = inc_clean["date"].dt.year
-inc_clean["income"] = pd.to_numeric(inc_clean["income"].replace("?", pd.NA), errors="coerce")
-
-if "variable" in inc_clean.columns:
-    inc_clean["variable"] = inc_clean["variable"].astype(str).str.strip().str.lower()
-    if "mean" in inc_clean["variable"].unique():
-        inc_clean = inc_clean[inc_clean["variable"] == "mean"]
+# A. National Yearly Aggregations (for Bar Chart & Summary Metrics)
+inc_mean = income_df[income_df["variable"].str.lower() == "mean"].copy() if "variable" in income_df.columns else income_df.copy()
 
 income_yearly_all = (
-    inc_clean[inc_clean["year"].isin(years_list)]
-    .groupby("year", as_index=False)["income"]
+    inc_mean.groupby("year", as_index=False)["income"]
     .mean()
     .rename(columns={"income": "avg_income"})
 )
 
-# B. Yearly Bar Chart Data (Marriages vs Prisoners)
-c_filtered = crime_clean.copy()
-if 'age' in c_filtered.columns and 'all' in c_filtered['age'].unique():
-    c_filtered = c_filtered[c_filtered['age'] == 'all']
-if 'sex' in c_filtered.columns and 'both' in c_filtered['sex'].unique():
-    c_filtered = c_filtered[c_filtered['sex'] == 'both']
-if 'state' in c_filtered.columns:
-    c_filtered = c_filtered[~c_filtered['state'].str.contains('Malaysia', case=False, na=False)]
+m_all = marriages_df[marriages_df["age"].str.lower() == "all"].copy() if "age" in marriages_df.columns else marriages_df.copy()
+if "sex" in m_all.columns and "both" in m_all["sex"].str.lower().unique():
+    m_all = m_all[m_all["sex"].str.lower() == "both"]
+if "state" in m_all.columns:
+    m_all = m_all[~m_all["state"].str.lower().eq("malaysia")]
 
-prisoner_col = 'prisoners' if 'prisoners' in c_filtered.columns else [
-    c for c in c_filtered.select_dtypes(include='number').columns if c not in ['year', 'rate']
-][0]
-
-prisoners_yearly = (
-    c_filtered
-    .assign(year=pd.to_datetime(c_filtered['date']).dt.year)
-    .groupby('year', as_index=False)[prisoner_col]
-    .sum()
-    .rename(columns={prisoner_col: 'total_prisoners'})
+marriages_yearly_all = (
+    m_all.groupby("year", as_index=False)["abs"]
+    .sum(min_count=1)
+    .rename(columns={"abs": "total_marriages"})
 )
 
-m_filtered = marriages_clean.copy()
-if 'sex' in m_filtered.columns and 'both' in m_filtered['sex'].unique():
-    m_filtered = m_filtered[m_filtered['sex'] == 'both']
-if 'age' in m_filtered.columns and 'all' in m_filtered['age'].unique():
-    m_filtered = m_filtered[m_filtered['age'] == 'all']
-if 'state' in m_filtered.columns:
-    m_filtered = m_filtered[~m_filtered['state'].str.contains('Malaysia', case=False, na=False)]
+c_all = crime_df.copy()
+if "sex" in c_all.columns and "both" in c_all["sex"].str.lower().unique():
+    c_all = c_all[c_all["sex"].str.lower() == "both"]
+if "age" in c_all.columns and "all" in c_all["age"].str.lower().unique():
+    c_all = c_all[c_all["age"].str.lower() == "all"]
 
-marriage_col = [c for c in m_filtered.select_dtypes(include='number').columns if c not in ['year', 'rate']][0]
+if "state" in c_all.columns and "malaysia" in c_all["state"].str.lower().unique():
+    c_nat = c_all[c_all["state"].str.lower() == "malaysia"]
+else:
+    c_nat = c_all
 
-marriages_yearly = (
-    m_filtered
-    .assign(year=pd.to_datetime(m_filtered['date']).dt.year)
-    .groupby('year', as_index=False)[marriage_col]
-    .sum()
-    .rename(columns={marriage_col: 'total_marriages'})
+prisoners_yearly_all = (
+    c_nat.groupby("year", as_index=False)["prisoners"]
+    .sum(min_count=1)
+    .rename(columns={"prisoners": "total_prisoners"})
 )
 
-# C. State-Level Scatter Plot & Correlation Heatmap Data
-filtered_df = final_merged_df[final_merged_df['age'] == 'all'].copy()
-filtered_df['state'] = filtered_df['state'].astype(str).str.strip("'")
-if 'year' not in filtered_df.columns:
-    filtered_df['year'] = pd.to_datetime(filtered_df['date']).dt.year
-
-plot_df_all = filtered_df.groupby(['state', 'date', 'year', 'income'], as_index=False).agg({
-    'prisoners': 'sum'
-})
-plot_df = plot_df_all[plot_df_all['year'].isin(selected_years)].copy()
-
-# D. Yearly Summary Table (for KPI Summary Boxes)
 full_yearly_df = (
-    pd.DataFrame({'year': years_list})
-    .merge(income_yearly_all, on='year', how='left')
-    .merge(marriages_yearly, on='year', how='left')
-    .merge(prisoners_yearly, on='year', how='left')
+    pd.DataFrame({"year": years_list})
+    .merge(income_yearly_all, on="year", how="left")
+    .merge(marriages_yearly_all, on="year", how="left")
+    .merge(prisoners_yearly_all, on="year", how="left")
 )
 
-merged_yearly_df = full_yearly_df[full_yearly_df['year'].isin(selected_years)].copy()
+merged_yearly_df = full_yearly_df[full_yearly_df["year"].isin(selected_years)].copy()
+
+# B. State-Level Scatter Plot Data (Income vs Prisoners)
+inc_state = inc_mean[~inc_mean["state"].str.lower().eq("malaysia")].groupby(["state", "year"], as_index=False)["income"].mean()
+c_state = c_all[~c_all["state"].str.lower().eq("malaysia")].groupby(["state", "year"], as_index=False)["prisoners"].sum()
+
+plot_df = inc_state.merge(c_state, on=["state", "year"], how="inner")
+plot_df = plot_df[plot_df["year"].isin(selected_years)].copy()
+plot_df["date"] = plot_df["year"].astype(str)
 
 # Helper functions for Summary Boxes
 def get_value(df, yr, col):
-    row = df[df['year'] == yr]
+    row = df[df["year"] == yr]
     if row.empty or pd.isna(row[col].iloc[0]):
         return None
     return float(row[col].iloc[0])
@@ -167,14 +165,9 @@ prev_prisoners = get_value(full_yearly_df, summary_year - 1, "total_prisoners")
 prisoner_chg = calc_pct_change(curr_prisoners, prev_prisoners)
 
 # Correlation data for Heatmap & Summary Box
-df_heat = plot_df.merge(
-    merged_yearly_df[['year', 'total_marriages']],
-    on='year',
-    how='inner'
-).rename(columns={'income': 'avg_income'})
-
+df_heat = merged_yearly_df[["avg_income", "total_marriages"]].dropna()
 corr_val = (
-    df_heat['avg_income'].corr(df_heat['total_marriages'])
+    df_heat["avg_income"].corr(df_heat["total_marriages"])
     if len(df_heat) >= 2 else None
 )
 
@@ -215,27 +208,30 @@ with tab1:
     st.caption("Summary metrics compare the selected summary year with the previous year.")
     st.divider()
 
-    fig_scatter = px.scatter(
-        plot_df,
-        x='income',
-        y='prisoners',
-        color='state',
-        hover_name='state',
-        hover_data=['date'],
-        trendline='ols',
-        trendline_scope='overall',
-        title=f'Household Income vs Prisoner Statistics ({min(selected_years)}–{max(selected_years)})',
-        labels={
-            'income': 'Average Household Income (RM)',
-            'prisoners': 'Number of Prisoners',
-            'state': 'State',
-            'date': 'Date/Year'
-        },
-        template='plotly_white'
-    )
-    fig_scatter.update_traces(marker=dict(size=9, opacity=0.85))
-    fig_scatter.update_layout(height=600, title_font_size=18, legend_title_text='State')
-    st.plotly_chart(fig_scatter, use_container_width=True)
+    if plot_df.empty:
+        st.warning("No matching state-level income and prisoner records for the selected years.")
+    else:
+        fig_scatter = px.scatter(
+            plot_df,
+            x="income",
+            y="prisoners",
+            color="state",
+            hover_name="state",
+            hover_data=["date"],
+            trendline="ols",
+            trendline_scope="overall",
+            title=f"Household Income vs Prisoner Statistics ({min(selected_years)}–{max(selected_years)})",
+            labels={
+                "income": "Average Household Income (RM)",
+                "prisoners": "Number of Prisoners",
+                "state": "State",
+                "date": "Year"
+            },
+            template="plotly_white"
+        )
+        fig_scatter.update_traces(marker=dict(size=9, opacity=0.85))
+        fig_scatter.update_layout(height=600, title_font_size=18, legend_title_text="State")
+        st.plotly_chart(fig_scatter, use_container_width=True)
 
 # === TAB 2: DUAL-AXIS BAR CHART + SUMMARY BOX ===
 with tab2:
@@ -269,10 +265,10 @@ with tab2:
 
     fig_bar.add_trace(
         go.Bar(
-            x=merged_yearly_df['year'],
-            y=merged_yearly_df['total_marriages'],
+            x=merged_yearly_df["year"],
+            y=merged_yearly_df["total_marriages"],
             name="Total Marriages",
-            marker_color='rgb(158,202,225)',
+            marker_color="rgb(158,202,225)",
             offsetgroup=1
         ),
         secondary_y=False
@@ -280,10 +276,10 @@ with tab2:
 
     fig_bar.add_trace(
         go.Bar(
-            x=merged_yearly_df['year'],
-            y=merged_yearly_df['total_prisoners'],
+            x=merged_yearly_df["year"],
+            y=merged_yearly_df["total_prisoners"],
             name="Total Prisoners",
-            marker_color='rgb(227,119,194)',
+            marker_color="rgb(227,119,194)",
             offsetgroup=2
         ),
         secondary_y=True
@@ -293,11 +289,11 @@ with tab2:
         title_text=f"National Yearly Marriages vs Total Prisoners ({min(selected_years)}–{max(selected_years)})",
         xaxis_title="Year",
         xaxis=dict(
-            type='category',
-            categoryorder='array',
+            type="category",
+            categoryorder="array",
             categoryarray=selected_years
         ),
-        barmode='group',
+        barmode="group",
         template="plotly_white",
         height=550,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
@@ -337,7 +333,7 @@ with tab3:
     if len(df_heat) < 2:
         st.warning("Not enough matching observations to calculate correlation. Please select at least 2 years.")
     else:
-        corr_matrix = df_heat[['avg_income', 'total_marriages']].corr()
+        corr_matrix = df_heat[["avg_income", "total_marriages"]].corr()
         fig_heat = px.imshow(
             corr_matrix,
             text_auto=".3f",
